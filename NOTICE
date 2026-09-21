@@ -1,0 +1,13 @@
+This project contains an adapted implementation of the WaSR and eWaSR network
+architectures from:
+
+  Matija Tersek, Lojze Zust, Matej Kristan
+  "eWaSR -- an embedded-compute-ready maritime obstacle detection network"
+  https://github.com/tersekmatija/eWaSR
+
+The upstream project is Copyright 2023 Tersek Matija and licensed under the
+Apache License, Version 2.0. The implementation in models/student.py was changed
+to use a modern torchvision API, remove PyTorch Lightning/timm dependencies,
+support direct tensor inputs and full-resolution outputs, and expose intermediate
+features for knowledge distillation.
+
