@@ -14,6 +14,7 @@ from utils.losses import LossWeights, MaritimeObjective, boundary_band_cross_ent
 from utils.metrics import (
     SegmentationMetrics,
     _binary_boundary_numpy,
+    _binary_dilate_numpy,
     _linear_sum_assignment_max,
     binary_boundary,
 )
@@ -173,12 +174,14 @@ class BaselineSmokeTest(unittest.TestCase):
         self.assertEqual(float(differentiable.grad[:, :, 0, 0].abs().sum()), 0.0)
 
     def test_boundary_tolerance_responds_to_pixel_shifts(self):
-        target = torch.ones((1, 32, 32), dtype=torch.long)
-        target[:, 8:24, 8:16] = 0
+        # A straight boundary far from image edges makes the tolerance semantics
+        # exact: translations <=3 px must be fully accepted at tolerance 3.
+        target = torch.ones((1, 32, 40), dtype=torch.long)
+        target[:, :, :16] = 0
 
         def shifted_metrics(offset: int) -> dict[str, float]:
             prediction = torch.ones_like(target)
-            prediction[:, 8:24, 8 + offset : 16 + offset] = 0
+            prediction[:, :, : 16 + offset] = 0
             metrics = SegmentationMetrics()
             metrics.update(prediction, target)
             return metrics.compute()
@@ -187,9 +190,10 @@ class BaselineSmokeTest(unittest.TestCase):
         shift2 = shifted_metrics(2)
         shift3 = shifted_metrics(3)
         shift4 = shifted_metrics(4)
-        self.assertGreaterEqual(shift1["boundary_f1_tol1"], shift2["boundary_f1_tol1"])
-        self.assertGreaterEqual(shift2["boundary_f1_tol3"], shift3["boundary_f1_tol3"])
-        self.assertGreater(shift3["boundary_f1_tol3"], shift4["boundary_f1_tol3"])
+        self.assertAlmostEqual(shift1["boundary_f1_tol3"], 1.0)
+        self.assertAlmostEqual(shift2["boundary_f1_tol3"], 1.0)
+        self.assertAlmostEqual(shift3["boundary_f1_tol3"], 1.0)
+        self.assertLess(shift4["boundary_f1_tol3"], 1.0)
         self.assertGreaterEqual(shift3["boundary_f1_tol5"], shift3["boundary_f1_tol3"])
 
     def test_numpy_boundary_matches_training_boundary(self):
@@ -201,6 +205,13 @@ class BaselineSmokeTest(unittest.TestCase):
                 _binary_boundary_numpy(mask, radius),
                 binary_boundary(tensor, radius).squeeze(0).numpy(),
             )
+
+        single = np.zeros((9, 11), dtype=bool)
+        single[4, 5] = True
+        dilated = _binary_dilate_numpy(single, 3)
+        self.assertTrue(dilated[4, 2])
+        self.assertTrue(dilated[4, 8])
+        self.assertFalse(dilated[4, 1])
 
     def test_component_recall_is_one_to_one_and_fp_threshold_is_16_pixels(self):
         target = torch.ones((1, 32, 32), dtype=torch.long)

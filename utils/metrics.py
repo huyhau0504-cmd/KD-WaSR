@@ -45,6 +45,21 @@ def _binary_boundary_numpy(mask: np.ndarray, radius: int = 1) -> np.ndarray:
     return dilated & ~eroded
 
 
+def _binary_dilate_numpy(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Dilate an already extracted binary boundary by a pixel tolerance."""
+    if radius < 0:
+        raise ValueError("dilation radius must be non-negative")
+    if radius == 0:
+        return mask.astype(bool, copy=True)
+    height, width = mask.shape
+    padded = np.pad(mask.astype(bool), radius, constant_values=False)
+    dilated = np.zeros_like(mask, dtype=bool)
+    for dy in range(2 * radius + 1):
+        for dx in range(2 * radius + 1):
+            dilated |= padded[dy : dy + height, dx : dx + width]
+    return dilated
+
+
 def _connected_components(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Label a binary mask with 8-connectivity using row runs.
 
@@ -208,12 +223,8 @@ class SegmentationMetrics:
             pred_boundary = _binary_boundary_numpy(pred_obstacle) & valid_array
             target_boundary = _binary_boundary_numpy(target_obstacle) & valid_array
             for tolerance, counts in self.boundary_counts.items():
-                pred_near_target = (
-                    _binary_boundary_numpy(target_obstacle, radius=tolerance) & valid_array
-                )
-                target_near_pred = (
-                    _binary_boundary_numpy(pred_obstacle, radius=tolerance) & valid_array
-                )
+                pred_near_target = _binary_dilate_numpy(target_boundary, tolerance) & valid_array
+                target_near_pred = _binary_dilate_numpy(pred_boundary, tolerance) & valid_array
                 counts["tp_precision"] += int((pred_boundary & pred_near_target).sum())
                 counts["predicted"] += int(pred_boundary.sum())
                 counts["tp_recall"] += int((target_boundary & target_near_pred).sum())
