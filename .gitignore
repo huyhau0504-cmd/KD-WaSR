@@ -13,3 +13,6 @@ checkpoints/*
 outputs/*
 tmp/
 
+# Local dataset archives must not be committed.
+*.zip
+

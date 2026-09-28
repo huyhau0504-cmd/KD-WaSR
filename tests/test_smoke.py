@@ -12,6 +12,7 @@ from datasets.mastr import MaSTr1325Dataset, decode_mask
 from models import build_model
 from utils.losses import LossWeights, MaritimeObjective
 from utils.metrics import SegmentationMetrics
+from prepare_grouped_splits import assign_groups, cross_split_audit, near_duplicate_groups
 
 
 class BaselineSmokeTest(unittest.TestCase):
@@ -70,6 +71,54 @@ class BaselineSmokeTest(unittest.TestCase):
         logits = model(image)["out"]
         self.assertEqual(tuple(logits.shape), (1, 3, 64, 96))
         logits.mean().backward()
+
+    def test_grouped_split_keeps_near_duplicates_together(self):
+        hashes = [0b0, 0b1, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE]
+        embeddings = np.eye(4, dtype=np.float32)
+        groups, _, _, _ = near_duplicate_groups(hashes, embeddings, 1, 0.999)
+        self.assertEqual(sorted(map(len, groups)), [2, 2])
+
+        histograms = np.array(
+            [[10, 20, 30], [10, 20, 30], [30, 20, 10], [30, 20, 10]],
+            dtype=np.int64,
+        )
+        assignments = assign_groups(groups, histograms, (0.5, 0.25, 0.25), seed=42)
+        owner = {index: split for split, indices in assignments.items() for index in indices}
+        for group in groups:
+            self.assertEqual(len({owner[index] for index in group}), 1)
+
+    def test_grouped_split_tracks_requested_ratios(self):
+        groups = [[index] for index in range(100)]
+        histograms = np.tile(np.array([[10, 20, 30]], dtype=np.int64), (100, 1))
+        assignments = assign_groups(groups, histograms, (0.7, 0.15, 0.15), seed=42)
+        self.assertLessEqual(abs(len(assignments["train"]) - 70), 1)
+        self.assertLessEqual(abs(len(assignments["val"]) - 15), 1)
+        self.assertLessEqual(abs(len(assignments["test"]) - 15), 1)
+
+    def test_near_duplicate_grouping_is_transitive(self):
+        hashes = [0b000, 0b001, 0b011]
+        embeddings = np.eye(3, dtype=np.float32)
+        groups, _, _, _ = near_duplicate_groups(hashes, embeddings, 1, 1.1)
+        self.assertEqual(groups, [[0, 1, 2]])
+
+    def test_embedding_edge_groups_images_when_phash_does_not(self):
+        hashes = [0, 0xFFFFFFFFFFFFFFFF]
+        embeddings = np.array([[1.0, 0.0], [0.999, 0.02]], dtype=np.float32)
+        embeddings /= np.linalg.norm(embeddings, axis=1, keepdims=True)
+        groups, _, embedding_edges, _ = near_duplicate_groups(hashes, embeddings, 0, 0.99)
+        self.assertEqual(groups, [[0, 1]])
+        self.assertEqual(embedding_edges, 1)
+
+    def test_cross_split_audit_reports_no_grouping_edge(self):
+        hashes = [0, 1, 0xFF]
+        similarities = np.array(
+            [[1.0, 0.99, 0.20], [0.99, 1.0, 0.30], [0.20, 0.30, 1.0]],
+            dtype=np.float32,
+        )
+        audit = cross_split_audit(hashes, similarities, ["train", "train", "test"], 1, 0.95)
+        self.assertEqual(audit["cross_split_phash_violations"], 0)
+        self.assertEqual(audit["cross_split_embedding_violations"], 0)
+        self.assertEqual(audit["minimum_cross_split_phash_distance"], 7)
 
 
 if __name__ == "__main__":

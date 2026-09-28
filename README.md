@@ -56,6 +56,8 @@ pip install -r requirements.txt
 
 ## 3. Prepare reproducible splits
 
+The random image-level split below is intended for pipeline debugging only:
+
 ```powershell
 python prepare_splits.py --data-root data/MaSTr1325 --output-dir data/splits --seed 42
 ```
@@ -64,26 +66,36 @@ This creates a deterministic 70/15/15 split. If sequence/session metadata become
 available, replace these files with scene-grouped splits before reporting paper
 results.
 
-## 4. Train baselines
-
-Train the eWaSR student:
+For research experiments, create the pre-registered near-duplicate grouped split:
 
 ```powershell
-python train_student.py --data-root data/MaSTr1325 --split-dir data/splits `
+python prepare_grouped_splits.py --data-root data/MaSTr1325 `
+  --output-dir data/grouped_splits --device cuda --seed 42
+```
+
+This writes locked split lists plus `split_report.json` with group statistics,
+cross-split nearest pairs, class distributions, and SHA-256 checksums.
+
+## 4. Train baselines
+
+All research runs below use the locked grouped split. Train the eWaSR student:
+
+```powershell
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
   --model ewasr_resnet18 --epochs 50 --batch-size 4 --output-dir outputs/ewasr_fp32
 ```
 
 Train the WaSR teacher:
 
 ```powershell
-python train_student.py --data-root data/MaSTr1325 --split-dir data/splits `
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
   --model wasr_resnet101 --epochs 50 --batch-size 2 --output-dir outputs/wasr_teacher
 ```
 
 Train with logit distillation and safety-aware losses:
 
 ```powershell
-python train_student.py --data-root data/MaSTr1325 --split-dir data/splits `
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
   --model ewasr_resnet18 --teacher-checkpoint outputs/wasr_teacher/best.pt `
   --kd-weight 1.0 --boundary-weight 0.2 --sparse-obstacle-weight 0.5 `
   --epochs 50 --batch-size 4 --output-dir outputs/ewasr_kd
@@ -92,7 +104,7 @@ python train_student.py --data-root data/MaSTr1325 --split-dir data/splits `
 ## 5. Evaluate and predict
 
 ```powershell
-python evaluate.py --data-root data/MaSTr1325 --split-dir data/splits `
+python evaluate.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
   --checkpoint outputs/ewasr_fp32/best.pt --split test
 
 python predict.py --input path/to/image_or_folder --checkpoint outputs/ewasr_fp32/best.pt `
@@ -106,7 +118,7 @@ python export_onnx.py --checkpoint outputs/ewasr_fp32/best.pt `
   --output outputs/ewasr_fp32/model.onnx
 
 python quantize_onnx.py --model outputs/ewasr_fp32/model.onnx `
-  --data-root data/MaSTr1325 --split-dir data/splits `
+  --data-root data/MaSTr1325 --split-dir data/grouped_splits `
   --output outputs/ewasr_fp32/model_int8.onnx
 
 python benchmark_onnx.py --model outputs/ewasr_fp32/model.onnx --runs 300 --warmup 50
