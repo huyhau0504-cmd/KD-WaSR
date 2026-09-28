@@ -17,7 +17,7 @@ from utils import SegmentationMetrics, move_features, resolve_device, save_json
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--data-root", type=Path, default=Path("data/MaSTr1325"))
-    parser.add_argument("--split-dir", type=Path, default=Path("data/splits"))
+    parser.add_argument("--split-dir", type=Path, default=Path("data/grouped_splits"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--height", type=int, default=384)

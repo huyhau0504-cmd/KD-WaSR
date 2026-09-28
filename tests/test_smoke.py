@@ -10,8 +10,13 @@ from PIL import Image
 
 from datasets.mastr import MaSTr1325Dataset, decode_mask
 from models import build_model
-from utils.losses import LossWeights, MaritimeObjective
-from utils.metrics import SegmentationMetrics
+from utils.losses import LossWeights, MaritimeObjective, boundary_band_cross_entropy
+from utils.metrics import (
+    SegmentationMetrics,
+    _binary_boundary_numpy,
+    _linear_sum_assignment_max,
+    binary_boundary,
+)
 from prepare_grouped_splits import assign_groups, cross_split_audit, near_duplicate_groups
 
 
@@ -57,7 +62,7 @@ class BaselineSmokeTest(unittest.TestCase):
             loss, terms = objective(trainable_logits, target)
             loss.backward()
             self.assertTrue(torch.isfinite(loss))
-            self.assertIn("boundary", terms)
+            self.assertIn("boundary_band_ce", terms)
 
             metrics = SegmentationMetrics()
             metrics.update(logits, target)
@@ -119,6 +124,116 @@ class BaselineSmokeTest(unittest.TestCase):
         self.assertEqual(audit["cross_split_phash_violations"], 0)
         self.assertEqual(audit["cross_split_embedding_violations"], 0)
         self.assertEqual(audit["minimum_cross_split_phash_distance"], 7)
+
+    def test_boundary_band_ce_preserves_obstacle_interior(self):
+        target = torch.ones((1, 17, 17), dtype=torch.long)
+        target[:, 4:13, 4:13] = 0
+        correct = torch.full((1, 3, 17, 17), -5.0)
+        correct.scatter_(1, target.unsqueeze(1), 5.0)
+
+        boundary_only_labels = torch.ones_like(target)
+        obstacle_boundary = (
+            torch.nn.functional.max_pool2d(
+                (target == 0).float().unsqueeze(1), 3, stride=1, padding=1
+            )
+            - (-torch.nn.functional.max_pool2d(
+                -(target == 0).float().unsqueeze(1), 3, stride=1, padding=1
+            ))
+            > 0
+        ).squeeze(1) & (target == 0)
+        boundary_only_labels[obstacle_boundary] = 0
+        boundary_only = torch.full_like(correct, -5.0)
+        boundary_only.scatter_(1, boundary_only_labels.unsqueeze(1), 5.0)
+
+        correct_loss = boundary_band_cross_entropy(correct, target, alpha=2.0)
+        boundary_only_loss = boundary_band_cross_entropy(boundary_only, target, alpha=2.0)
+        self.assertLess(float(correct_loss), float(boundary_only_loss))
+
+    def test_boundary_band_error_is_weighted_and_ignore_has_zero_gradient(self):
+        target = torch.ones((1, 17, 17), dtype=torch.long)
+        target[:, 3:14, 3:14] = 0
+        logits = torch.full((1, 3, 17, 17), -4.0)
+        logits.scatter_(1, target.unsqueeze(1), 4.0)
+
+        boundary_error = logits.clone()
+        boundary_error[:, 0, 3, 8] = -4.0
+        boundary_error[:, 1, 3, 8] = 4.0
+        interior_error = logits.clone()
+        interior_error[:, 0, 8, 8] = -4.0
+        interior_error[:, 1, 8, 8] = 4.0
+        self.assertGreater(
+            float(boundary_band_cross_entropy(boundary_error, target, alpha=4.0)),
+            float(boundary_band_cross_entropy(interior_error, target, alpha=4.0)),
+        )
+
+        ignored_target = target.clone()
+        ignored_target[:, 0, 0] = 4
+        differentiable = logits.clone().requires_grad_(True)
+        boundary_band_cross_entropy(differentiable, ignored_target, alpha=2.0).backward()
+        self.assertEqual(float(differentiable.grad[:, :, 0, 0].abs().sum()), 0.0)
+
+    def test_boundary_tolerance_responds_to_pixel_shifts(self):
+        target = torch.ones((1, 32, 32), dtype=torch.long)
+        target[:, 8:24, 8:16] = 0
+
+        def shifted_metrics(offset: int) -> dict[str, float]:
+            prediction = torch.ones_like(target)
+            prediction[:, 8:24, 8 + offset : 16 + offset] = 0
+            metrics = SegmentationMetrics()
+            metrics.update(prediction, target)
+            return metrics.compute()
+
+        shift1 = shifted_metrics(1)
+        shift2 = shifted_metrics(2)
+        shift3 = shifted_metrics(3)
+        shift4 = shifted_metrics(4)
+        self.assertGreaterEqual(shift1["boundary_f1_tol1"], shift2["boundary_f1_tol1"])
+        self.assertGreaterEqual(shift2["boundary_f1_tol3"], shift3["boundary_f1_tol3"])
+        self.assertGreater(shift3["boundary_f1_tol3"], shift4["boundary_f1_tol3"])
+        self.assertGreaterEqual(shift3["boundary_f1_tol5"], shift3["boundary_f1_tol3"])
+
+    def test_numpy_boundary_matches_training_boundary(self):
+        generator = np.random.default_rng(42)
+        mask = generator.random((19, 23)) > 0.7
+        tensor = torch.from_numpy(mask).unsqueeze(0)
+        for radius in (1, 3, 5):
+            np.testing.assert_array_equal(
+                _binary_boundary_numpy(mask, radius),
+                binary_boundary(tensor, radius).squeeze(0).numpy(),
+            )
+
+    def test_component_recall_is_one_to_one_and_fp_threshold_is_16_pixels(self):
+        target = torch.ones((1, 32, 32), dtype=torch.long)
+        target[:, 8:12, 4:8] = 0
+        target[:, 8:12, 12:16] = 0
+        prediction = torch.ones_like(target)
+        prediction[:, 8:12, 4:16] = 0  # one merged prediction for two GT objects
+        prediction[:, 20:24, 20:24] = 0  # 16 px: counted as false positive
+        prediction[:, 26:29, 20:25] = 0  # 15 px: ignored as noise
+
+        metrics = SegmentationMetrics()
+        metrics.update(prediction, target)
+        result = metrics.compute()
+        self.assertEqual(result["component_count_tiny"], 2.0)
+        self.assertEqual(result["component_recall_tiny"], 0.5)
+        self.assertEqual(result["small_component_recall"], 0.5)
+        self.assertEqual(result["false_positive_components_per_100_images"], 100.0)
+
+    def test_component_connectivity_is_eight_neighbour(self):
+        target = torch.ones((1, 16, 16), dtype=torch.long)
+        target[:, 5, 5] = 0
+        target[:, 6, 6] = 0
+        metrics = SegmentationMetrics()
+        metrics.update(target.clone(), target)
+        result = metrics.compute()
+        self.assertEqual(result["component_count_tiny"], 1.0)
+        self.assertEqual(result["component_recall_tiny"], 1.0)
+
+    def test_hungarian_matching_maximizes_global_iou(self):
+        scores = np.array([[0.9, 0.8], [0.85, 0.1]], dtype=np.float64)
+        pairs = _linear_sum_assignment_max(scores)
+        self.assertEqual(set(pairs), {(0, 1), (1, 0)})
+        self.assertAlmostEqual(sum(scores[row, column] for row, column in pairs), 1.65)
 
 
 if __name__ == "__main__":

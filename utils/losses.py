@@ -30,12 +30,30 @@ def sparse_obstacle_loss(
     return (per_pixel * weight_map * valid).sum() / valid.sum().clamp_min(1)
 
 
-def boundary_loss(logits: Tensor, target: Tensor, ignore_index: int = 4) -> Tensor:
-    obstacle_probability = logits.softmax(dim=1)[:, 0]
-    target_boundary = binary_boundary(target == 0).float()
+def boundary_band_cross_entropy(
+    logits: Tensor,
+    target: Tensor,
+    alpha: float = 1.0,
+    radius: int = 3,
+    ignore_index: int = 4,
+) -> Tensor:
+    """Cross entropy with extra weight in a GT obstacle-boundary band.
+
+    Unlike the previous boundary BCE, this objective keeps the original class
+    target everywhere.  Consequently, obstacle interiors are still trained as
+    obstacle instead of being incorrectly trained as non-boundary pixels.
+    """
+    if alpha < 0:
+        raise ValueError("boundary alpha must be non-negative")
+    if radius < 0:
+        raise ValueError("boundary radius must be non-negative")
+
     valid = target != ignore_index
-    loss = F.binary_cross_entropy(obstacle_probability, target_boundary, reduction="none")
-    return (loss * valid).sum() / valid.sum().clamp_min(1)
+    per_pixel = F.cross_entropy(logits, target, ignore_index=ignore_index, reduction="none")
+    band = binary_boundary((target == 0) & valid, radius=radius) & valid
+    weights = 1.0 + alpha * band.to(per_pixel.dtype)
+    valid_weights = weights * valid.to(per_pixel.dtype)
+    return (per_pixel * valid_weights).sum() / valid_weights.sum().clamp_min(1.0)
 
 
 def logit_distillation_loss(
@@ -81,11 +99,19 @@ class MaritimeObjective(nn.Module):
         target: Tensor,
         teacher_logits: Optional[Tensor] = None,
     ) -> tuple[Tensor, Dict[str, Tensor]]:
-        terms: Dict[str, Tensor] = {
-            "segmentation": F.cross_entropy(
+        if self.weights.boundary > 0:
+            segmentation = boundary_band_cross_entropy(
+                student_logits,
+                target,
+                alpha=self.weights.boundary,
+                radius=3,
+                ignore_index=self.ignore_index,
+            )
+        else:
+            segmentation = F.cross_entropy(
                 student_logits, target, ignore_index=self.ignore_index
             )
-        }
+        terms: Dict[str, Tensor] = {"segmentation": segmentation}
         total = terms["segmentation"]
 
         if self.weights.kd > 0:
@@ -100,8 +126,9 @@ class MaritimeObjective(nn.Module):
             )
             total = total + self.weights.kd * terms["kd"]
         if self.weights.boundary > 0:
-            terms["boundary"] = boundary_loss(student_logits, target, self.ignore_index)
-            total = total + self.weights.boundary * terms["boundary"]
+            # Kept as a named term for logging/backward compatibility. It is
+            # the segmentation objective itself and must not be added twice.
+            terms["boundary_band_ce"] = segmentation
         if self.weights.sparse_obstacle > 0:
             terms["sparse_obstacle"] = sparse_obstacle_loss(
                 student_logits, target, self.ignore_index

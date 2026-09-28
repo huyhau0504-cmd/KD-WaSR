@@ -29,7 +29,7 @@ from utils import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--data-root", type=Path, default=Path("data/MaSTr1325"))
-    parser.add_argument("--split-dir", type=Path, default=Path("data/splits"))
+    parser.add_argument("--split-dir", type=Path, default=Path("data/grouped_splits"))
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/ewasr_fp32"))
     parser.add_argument(
         "--model", choices=("ewasr_resnet18", "wasr_resnet101"), default="ewasr_resnet18"
@@ -45,7 +45,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--kd-weight", type=float, default=0.0)
-    parser.add_argument("--boundary-weight", type=float, default=0.0)
+    parser.add_argument(
+        "--boundary-weight",
+        type=float,
+        default=0.0,
+        help="alpha_band for radius-3 boundary-band CE; zero uses ordinary CE",
+    )
     parser.add_argument("--sparse-obstacle-weight", type=float, default=0.0)
     parser.add_argument("--temperature", type=float, default=4.0)
     parser.add_argument("--gradient-clip", type=float, default=1.0)
@@ -123,7 +128,7 @@ def main() -> None:
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     history = []
-    best_f1 = -1.0
+    best_score = -1.0
     print(
         f"device={device} train={len(train_loader.dataset)} val={len(val_loader.dataset)} "
         f"parameters={sum(p.numel() for p in model.parameters()):,}"
@@ -175,13 +180,14 @@ def main() -> None:
             "args": serializable_args(args),
         }
         torch.save(checkpoint, args.output_dir / "last.pt")
-        if val_metrics["obstacle_f1"] > best_f1:
-            best_f1 = val_metrics["obstacle_f1"]
+        if val_metrics["safety_score"] > best_score:
+            best_score = val_metrics["safety_score"]
             torch.save(checkpoint, args.output_dir / "best.pt")
         print(
             f"epoch={epoch} loss={record['train_loss']:.4f} "
             f"mIoU={val_metrics['mean_iou']:.4f} obstacle_F1={val_metrics['obstacle_f1']:.4f} "
-            f"boundary_F1={val_metrics['boundary_f1']:.4f}"
+            f"boundary_F1={val_metrics['boundary_f1_tol3']:.4f} "
+            f"safety_score={val_metrics['safety_score']:.4f}"
         )
 
 

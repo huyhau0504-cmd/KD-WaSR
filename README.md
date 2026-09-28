@@ -12,7 +12,7 @@ The code provides:
 
 - a MaSTr1325 loader with deterministic train/validation/test splits;
 - an adapted eWaSR-ResNet18 student and WaSR-ResNet101 teacher;
-- supervised, knowledge-distillation, boundary, and sparse-obstacle losses;
+- supervised, knowledge-distillation, boundary-band CE, and sparse-obstacle losses;
 - training, evaluation, image/folder prediction, MODS prediction, ONNX export,
   ONNX static INT8 quantization, and Raspberry Pi benchmarking scripts;
 - Vietnamese research proposal and experimental protocol in `docs/`.
@@ -92,12 +92,13 @@ python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_spli
   --model wasr_resnet101 --epochs 50 --batch-size 2 --output-dir outputs/wasr_teacher
 ```
 
-Train with logit distillation and safety-aware losses:
+Train standard logit distillation with the approved boundary-band CE
+(`--boundary-weight` is `alpha_band`, not a second additive loss):
 
 ```powershell
 python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
   --model ewasr_resnet18 --teacher-checkpoint outputs/wasr_teacher/best.pt `
-  --kd-weight 1.0 --boundary-weight 0.2 --sparse-obstacle-weight 0.5 `
+  --kd-weight 1.0 --boundary-weight 2.0 `
   --epochs 50 --batch-size 4 --output-dir outputs/ewasr_kd
 ```
 
