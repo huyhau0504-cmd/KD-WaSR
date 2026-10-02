@@ -112,6 +112,20 @@ python predict.py --input path/to/image_or_folder --checkpoint outputs/ewasr_fp3
   --output-dir outputs/predictions
 ```
 
+### A/B test with the authors' official pretrained eWaSR
+
+Before changing the training recipe, compare the local checkpoint against the
+official non-IMU eWaSR ResNet-18 model trained on MaSTr1325:
+
+```powershell
+python predict_official_ewasr.py --input path/to/image_or_folder --download `
+  --output-dir outputs/official_ewasr_predictions
+```
+
+The script downloads release `0.1.0`, verifies its SHA-256 checksum, reproduces
+the official ImageNet preprocessing and upsamples logits before argmax. Compare
+the generated `_overlay.jpg` with the local model on exactly the same images.
+
 ## 6. Export, quantize, and benchmark
 
 ```powershell

@@ -19,9 +19,22 @@ from utils.metrics import (
     binary_boundary,
 )
 from prepare_grouped_splits import assign_groups, cross_split_audit, near_duplicate_groups
+from predict_official_ewasr import logits_to_mask, preprocess as preprocess_official
 
 
 class BaselineSmokeTest(unittest.TestCase):
+    def test_official_ewasr_preprocess_and_logit_resize(self):
+        image = Image.fromarray(np.full((640, 640, 3), 128, dtype=np.uint8))
+        tensor = preprocess_official(image)
+        self.assertEqual(tensor.shape, (1, 3, 384, 512))
+        self.assertEqual(tensor.dtype, np.float32)
+
+        logits = np.zeros((1, 3, 96, 128), dtype=np.float32)
+        logits[:, 1] = 1.0
+        mask = logits_to_mask(logits, image.size)
+        self.assertEqual(mask.shape, (640, 640))
+        self.assertTrue(np.all(mask == 1))
+
     def test_mask_decoding(self):
         grayscale = Image.fromarray(np.array([[0, 1], [2, 4]], dtype=np.uint8))
         np.testing.assert_array_equal(decode_mask(grayscale), np.array([[0, 1], [2, 4]]))

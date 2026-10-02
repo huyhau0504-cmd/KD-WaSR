@@ -10,6 +10,7 @@ data/MaSTr1325/imus/*
 !data/MaSTr1325/images/.gitkeep
 !data/MaSTr1325/masks/.gitkeep
 checkpoints/*
+pretrained/*
 outputs/*
 tmp/
 

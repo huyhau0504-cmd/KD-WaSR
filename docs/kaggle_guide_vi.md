@@ -66,3 +66,31 @@ sau.
 
 Không ghi GitHub token, Kaggle token hay mật khẩu trực tiếp vào notebook hoặc
 commit Git.
+
+## 5. So sánh với eWaSR pretrained chính thức
+
+Trước khi kết luận kiến trúc eWaSR không phù hợp với ảnh ngoài miền, chạy cùng
+ảnh qua model `ewasr_resnet18.onnx` do tác giả công bố:
+
+```python
+from pathlib import Path
+import subprocess
+import sys
+
+test_images = sorted(Path("/kaggle/input").rglob("left_*.jpg"))
+assert test_images, "Không tìm thấy ảnh left_*.jpg"
+
+subprocess.run([
+    sys.executable,
+    "predict_official_ewasr.py",
+    "--input", str(test_images[0].parent),
+    "--download",
+    "--output-dir", "/kaggle/working/official_ewasr_predictions",
+], check=True)
+```
+
+Script tải release chính thức `0.1.0`, kiểm tra SHA-256 và sinh ba file cho mỗi
+ảnh: mask class-id, mask màu và overlay. So sánh `_overlay.jpg` của model chính
+thức với output model tự train trên chính xác cùng tập ảnh. Nếu model chính thức
+tốt hơn rõ rệt, lỗi chính nằm ở training recipe/checkpoint chứ không phải bản
+thân kiến trúc eWaSR.
