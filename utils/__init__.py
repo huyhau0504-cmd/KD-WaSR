@@ -6,6 +6,7 @@ from .provenance import (
     environment_provenance,
     git_provenance,
     sha256_file,
+    sha256_split_file,
     training_provenance,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "environment_provenance",
     "git_provenance",
     "sha256_file",
+    "sha256_split_file",
     "training_provenance",
     "move_features",
     "resolve_device",

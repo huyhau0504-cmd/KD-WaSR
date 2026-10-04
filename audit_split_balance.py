@@ -11,7 +11,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from datasets.mastr import MASK_EXTENSIONS, decode_mask, discover_image_stems, read_split
-from utils import dataset_manifest_sha256, save_json, sha256_file
+from utils import dataset_manifest_sha256, save_json, sha256_split_file
 from utils.metrics import COMPONENT_BINS, _component_bin, _connected_components
 
 
@@ -42,7 +42,7 @@ def main() -> None:
         for name in ("train", "val", "test")
     }
     split_checksums = {
-        name: sha256_file(args.split_dir / f"{name}.txt") for name in split_stems
+        name: sha256_split_file(args.split_dir / f"{name}.txt") for name in split_stems
     }
     for name, stems in split_stems.items():
         if len(stems) != len(set(stems)):

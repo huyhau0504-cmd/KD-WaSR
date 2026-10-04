@@ -3,9 +3,9 @@
   "source_protocol": "pre-registered grouped near-duplicate split v1",
   "verified_current_state": {
     "split_sha256": {
-      "train": "3786579a0da60ce5fc426b98eeed5ba52625870440f1b869277019f41912df0e",
-      "val": "9ee3c4cf8a49d20b40aea4366344867fd39513464f949e975d4a69d34d2c07fb",
-      "test": "c56e2199946e5c9f7f7c68d2a1e1c48cf1eaab86bea95742e3d45a0c20f31c54"
+      "train": "44bda63106bb3f6372bc6d863e591128effd95753305b36951065ac2fe165e05",
+      "val": "d0048df630b60349d3a125aca2348167cc4737e66a8404d83899f58aaba59eba",
+      "test": "c14a7f3c1bcab9e527efba0610609e524622957dfb9547c8c835a3d52e75d0f6"
     },
     "dataset_manifest_sha256": "12e49d70156f623d4f6cff16973c9892c71beaaee42b63e7cd0322ae5f3e09f5",
     "dataset_images": 1325,

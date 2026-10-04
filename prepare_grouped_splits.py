@@ -231,6 +231,15 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_split_file(path: Path) -> str:
+    entries = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return hashlib.sha256(("\n".join(entries) + "\n").encode("utf-8")).hexdigest()
+
+
 def dataset_manifest_sha256(
     stems: list[str], image_paths: list[Path], mask_paths: list[Path]
 ) -> str:
@@ -352,7 +361,7 @@ def main() -> None:
                 "water": int(counts[1]),
                 "sky": int(counts[2]),
             },
-            "sha256": sha256_file(path),
+            "sha256": sha256_split_file(path),
         }
 
     group_split_violations = 0

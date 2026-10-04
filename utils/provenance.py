@@ -25,6 +25,17 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_split_file(path: str | Path) -> str:
+    """Hash logical split entries independent of LF/CRLF checkout settings."""
+    entries = [
+        line.strip()
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    canonical = ("\n".join(entries) + "\n").encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _find_file(directory: Path, stems: tuple[str, ...], extensions: set[str]) -> Path:
     for stem in stems:
         for extension in sorted(extensions):
@@ -99,7 +110,7 @@ def training_provenance(
 ) -> dict:
     split_dir = Path(split_dir)
     split_checksums = {
-        name: sha256_file(split_dir / f"{name}.txt")
+        name: sha256_split_file(split_dir / f"{name}.txt")
         for name in ("train", "val", "test")
     }
     report_path = split_dir / "split_report.json"

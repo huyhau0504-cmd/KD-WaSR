@@ -7,9 +7,18 @@ from pathlib import Path
 import torch
 
 from run_screening import best_validation
+from utils import sha256_split_file
 
 
 class ScreeningTest(unittest.TestCase):
+    def test_split_checksum_is_line_ending_independent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lf = Path(directory) / "lf.txt"
+            crlf = Path(directory) / "crlf.txt"
+            lf.write_bytes(b"0001\n0002\n")
+            crlf.write_bytes(b"0001\r\n0002\r\n")
+            self.assertEqual(sha256_split_file(lf), sha256_split_file(crlf))
+
     def test_summary_reads_exact_selected_checkpoint(self):
         metrics = {
             "safety_score": 0.6123,
