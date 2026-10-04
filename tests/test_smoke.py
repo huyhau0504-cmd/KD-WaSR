@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from datasets.mastr import MaSTr1325Dataset, decode_mask
+from datasets.mastr import JointTransform, MaSTr1325Dataset, augmentation_spec, decode_mask
 from models import build_model
 from utils.losses import LossWeights, MaritimeObjective, boundary_band_cross_entropy
 from utils.metrics import (
@@ -20,9 +20,30 @@ from utils.metrics import (
 )
 from prepare_grouped_splits import assign_groups, cross_split_audit, near_duplicate_groups
 from predict_official_ewasr import logits_to_mask, preprocess as preprocess_official
+from utils import SAFETY_SCORE_SPEC, seed_everything
 
 
 class BaselineSmokeTest(unittest.TestCase):
+    def test_domain_augmentation_is_locked_and_reproducible(self):
+        spec = augmentation_spec("domain")
+        self.assertEqual(spec["gamma"]["range"], [0.75, 1.35])
+        self.assertEqual(spec["jpeg"]["quality"], [55, 95])
+        image = Image.fromarray(np.full((64, 96, 3), 128, dtype=np.uint8))
+        mask = Image.fromarray(np.ones((64, 96), dtype=np.uint8))
+        transform = JointTransform(
+            size=(64, 96), train=True, augmentation_profile="domain"
+        )
+        seed_everything(123)
+        first_image, first_mask, _ = transform(image, mask)
+        seed_everything(123)
+        second_image, second_mask, _ = transform(image, mask)
+        self.assertTrue(torch.equal(first_image, second_image))
+        self.assertTrue(torch.equal(first_mask, second_mask))
+
+    def test_safety_score_protocol_is_locked(self):
+        self.assertEqual(SAFETY_SCORE_SPEC["direction"], "maximize")
+        self.assertAlmostEqual(sum(SAFETY_SCORE_SPEC["terms"].values()), 1.0)
+
     def test_official_ewasr_preprocess_and_logit_resize(self):
         image = Image.fromarray(np.full((640, 640, 3), 128, dtype=np.uint8))
         tensor = preprocess_official(image)

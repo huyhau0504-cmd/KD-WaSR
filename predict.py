@@ -8,12 +8,11 @@ from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
-from torchvision.transforms import InterpolationMode
-from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
 from models import load_checkpoint_model
-from utils import resolve_device
+from utils import resolve_device, save_json
+from utils.geometry import GeometryMode, logits_to_mask, preprocess_image
 
 
 COLORS = np.array(
@@ -34,18 +33,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/predictions"))
     parser.add_argument("--height", type=int, default=384)
     parser.add_argument("--width", type=int, default=512)
+    parser.add_argument(
+        "--geometry",
+        choices=("stretch", "letterbox", "center_crop"),
+        default="stretch",
+        help="Aspect-ratio policy. center_crop marks invisible source pixels as label 255.",
+    )
     parser.add_argument("--device", default="auto")
     parser.add_argument("--overlay-alpha", type=float, default=0.55)
     return parser.parse_args()
-
-
-def preprocess(image: Image.Image, size: tuple[int, int]) -> torch.Tensor:
-    image = TF.resize(image.convert("RGB"), size, interpolation=InterpolationMode.BILINEAR)
-    return TF.normalize(
-        TF.to_tensor(image),
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225),
-    )
 
 
 def image_paths(path: Path) -> list[Path]:
@@ -61,12 +57,28 @@ def save_prediction(
     alpha: float,
 ) -> None:
     output_stem.parent.mkdir(parents=True, exist_ok=True)
-    raw = Image.fromarray(prediction.astype(np.uint8), mode="L")
+    raw = Image.fromarray(prediction.astype(np.uint8))
     raw.save(output_stem.with_name(output_stem.name + "_mask.png"))
-    color = Image.fromarray(COLORS[prediction], mode="RGB")
+    color_array = np.full((*prediction.shape, 3), 128, dtype=np.uint8)
+    known = prediction < len(COLORS)
+    color_array[known] = COLORS[prediction[known]]
+    color = Image.fromarray(color_array)
     source_resized = source.convert("RGB").resize(color.size, Image.Resampling.BILINEAR)
     overlay = Image.blend(source_resized, color, alpha=alpha)
     overlay.save(output_stem.with_name(output_stem.name + "_overlay.jpg"), quality=92)
+
+
+def predict_image(
+    model: torch.nn.Module,
+    source: Image.Image,
+    size: tuple[int, int],
+    geometry: GeometryMode,
+    device: torch.device,
+) -> tuple[np.ndarray, dict]:
+    tensor, metadata = preprocess_image(source, target_size=size, mode=geometry)
+    logits = model(tensor.unsqueeze(0).to(device))["out"]
+    prediction = logits_to_mask(logits, metadata)[0].cpu().numpy()
+    return prediction, metadata.to_dict()
 
 
 def main() -> None:
@@ -78,12 +90,18 @@ def main() -> None:
     if not paths:
         raise RuntimeError(f"No images found under {args.input}")
     base = args.input if args.input.is_dir() else args.input.parent
+    geometry_records = []
 
     with torch.inference_mode():
         for path in tqdm(paths, desc="predict"):
             image = Image.open(path).convert("RGB")
-            tensor = preprocess(image, (args.height, args.width)).unsqueeze(0).to(device)
-            prediction = model(tensor)["out"].argmax(dim=1)[0].cpu().numpy()
+            prediction, metadata = predict_image(
+                model,
+                image,
+                (args.height, args.width),
+                args.geometry,
+                device,
+            )
             relative = path.relative_to(base)
             save_prediction(
                 image,
@@ -91,6 +109,11 @@ def main() -> None:
                 args.output_dir / relative.parent / relative.stem,
                 args.overlay_alpha,
             )
+            geometry_records.append({"image": relative.as_posix(), **metadata})
+    save_json(
+        args.output_dir / "geometry_manifest.json",
+        {"geometry": args.geometry, "images": geometry_records},
+    )
 
 
 if __name__ == "__main__":

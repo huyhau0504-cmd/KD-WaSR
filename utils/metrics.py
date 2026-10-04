@@ -18,6 +18,25 @@ COMPONENT_BINS = (
     ("small", 257, 1024),
     ("medium_plus", 1025, None),
 )
+SAFETY_SCORE_SPEC = {
+    "direction": "maximize",
+    "undefined_metric_policy": "zero via denominator clamp",
+    "terms": {
+        "obstacle_f1": 0.40,
+        "small_component_recall": 0.30,
+        "boundary_f1_tol3": 0.20,
+        "one_minus_obstacle_pixel_fpr": 0.10,
+    },
+}
+
+
+def compute_safety_score(metrics: Dict[str, float]) -> float:
+    return float(
+        0.40 * metrics["obstacle_f1"]
+        + 0.30 * metrics["small_component_recall"]
+        + 0.20 * metrics["boundary_f1_tol3"]
+        + 0.10 * (1.0 - metrics["obstacle_pixel_fpr"])
+    )
 
 
 def binary_boundary(mask: Tensor, radius: int = 1) -> Tensor:
@@ -333,12 +352,7 @@ class SegmentationMetrics:
                 self.component_total[name], 1
             )
             result[f"component_count_{name}"] = float(self.component_total[name])
-        result["safety_score"] = (
-            0.40 * result["obstacle_f1"]
-            + 0.30 * result["small_component_recall"]
-            + 0.20 * result["boundary_f1_tol3"]
-            + 0.10 * (1.0 - result["obstacle_pixel_fpr"])
-        )
+        result["safety_score"] = compute_safety_score(result)
         for index, name in enumerate(CLASS_NAMES[: self.num_classes]):
             result[f"iou_{name}"] = float(iou[index])
         return result

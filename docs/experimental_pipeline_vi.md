@@ -29,10 +29,53 @@ sequence chỉ từ tên file nếu chưa xác minh metadata.
 
 - Kích thước chuẩn: 384×512, ImageNet normalization.
 - Baseline: horizontal flip và color jitter nhẹ.
-- Domain-robustness ablation: blur, gamma/exposure, haze/color cast và glare.
+- Domain profile đã khóa: brightness/contrast `0.30`, saturation `0.20`, hue
+  `0.04`; gamma `[0.75,1.35]` với `p=.25`; Gaussian blur radius
+  `[0.10,1.20]` với `p=.20`; JPEG quality `[55,95]` với `p=.20`; fog alpha
+  `[.04,.16]` với `p=.15`; Gaussian noise sigma `[0,.025]` với `p=.20`.
+- Phải sinh montage bằng `preview_augmentations.py` và kiểm tra vật cản/mask còn
+  quan sát được trước train. Toàn bộ khoảng và xác suất được ghi vào
+  `config.json`.
 - Không augmentation validation/test.
 - Không dùng ảnh external test để thiết kế augmentation sau khi xem kết quả; nếu
   cần vòng phát triển domain adaptation, phải tạo development set riêng.
+
+### 3.1. Geometry diagnostic cho ảnh khác tỷ lệ
+
+MaSTr1325 trong thí nghiệm khóa là 512×384 (4:3), trong khi tập ảnh qualitative
+có thể là 640×640. Không được ép ảnh vuông thành 512×384 rồi kết luận lỗi model
+mà không kiểm tra geometry. Chạy ba nhánh trên đúng cùng danh sách ảnh:
+
+| ID | Phép biến đổi | Vai trò |
+|---|---|---|
+| G0 | stretch | baseline lịch sử |
+| G1 | letterbox | giữ tỷ lệ, pad sau normalization bằng 0 |
+| G2 | center crop | ablation phụ, không dùng làm pipeline an toàn |
+
+Với letterbox, lưu scale/padding từng ảnh; bỏ padding khỏi **logits**, bilinear
+resize logits về kích thước gốc rồi mới argmax. Với center crop, vùng nguồn bị
+cắt luôn mang label `255=unknown` và bị loại khỏi mọi metric. Mask class-id không
+được nội suy bilinear.
+
+Khi 50 ảnh ngoài miền chưa có mask, contact sheet cố định
+`Original | G0 | G1 | G2 | official eWaSR` chỉ dùng mô tả failure mode. Không
+đếm số ảnh “trông tốt hơn” và không dùng để chọn model chính thức. Camera demo
+Pi nên ưu tiên 640×480 (4:3); chỉ train square-native/letterbox-trained sau khi
+có target-train/validation được gán nhãn.
+
+### 3.2. Gate trước training robustness
+
+1. `audit_split_balance.py` phải xác nhận không leakage và báo cáo số group,
+   class ratio, component bins và vị trí group lớn nhất.
+2. Toàn bộ unit test forward/inverse geometry phải pass.
+3. Dry-run hai mẫu phải xác nhận image-mask alignment.
+4. S0, split, metric, công thức safety score và danh sách external qualitative
+   phải được khóa.
+5. Screening R1/R2 trong 15 epoch chỉ dùng train/validation:
+   augmentation-only, augmentation+boundary, augmentation+sparse và kết hợp.
+   Hai loss không được thêm cùng một lần mà thiếu ablation riêng.
+6. Chỉ cấu hình thắng validation mới được chạy đầy đủ; S0, R1 và
+   cấu hình cuối chạy seed `42,1337,2026`. Test chỉ mở sau khi khóa cấu hình.
 
 ## 4. Loss và KD
 
@@ -57,13 +100,13 @@ obstacle. Unit test bắt buộc:
 
 ### Region-weighted KD
 
-So sánh tuần tự:
+So sánh tuần tự, theo registry ID duy nhất:
 
 - S0: supervised-only;
-- S1a: standard KL KD;
-- S1b: class-weighted KD;
-- S2: region-weighted KD cho obstacle nhỏ, boundary và disagreement;
-- S3: S2 + boundary-band weighted CE.
+- K1: standard KL KD;
+- K2: class-weighted KD;
+- K3: region-weighted KD cho obstacle nhỏ, boundary và disagreement;
+- K4: K3 + boundary-band weighted CE.
 
 Với pixel hợp lệ `i`, định nghĩa:
 
@@ -80,7 +123,7 @@ L_region_KD = sum_i w_i * KL_i / sum_i w_i
 ```
 
 Các vùng chồng lấp được cộng theo `r_i`; clamp diễn ra sau phép cộng. Softmax
-confidence dùng temperature 1, còn `KL_i` dùng temperature `T`. Với S1b,
+confidence dùng temperature 1, còn `KL_i` dùng temperature `T`. Với K2,
 class weights là nghịch đảo căn bậc hai tần suất pixel trên train split, rồi
 chuẩn hóa weighted mean bằng 1. Các công thức này không được đổi sau khi test.
 
@@ -140,24 +183,28 @@ Không thay đổi công thức sau khi mở test.
 
 | ID | Student objective | Mục đích |
 |---|---|---|
+| S0 | CE + baseline augmentation | supervised baseline khóa |
+| R1 | CE + domain augmentation | robustness augmentation |
+| R1-B | R1 + boundary-band CE | tách hiệu quả boundary |
+| R1-O | R1 + sparse-obstacle loss | tách hiệu quả vật cản nhỏ |
+| R2 | R1 + cả hai loss | kiểm tra tương tác |
 | T0 | WaSR teacher | teacher gate |
-| S0 | CE | supervised baseline |
-| S1a | CE + standard KL | KD baseline |
-| S1b | CE + class-weighted KL | baseline mạnh hơn |
-| S2 | CE + region-weighted KD | đóng góp chính |
-| S3 | S2 + boundary-band CE | đóng góp biên |
+| K1 | CE + standard KL | KD baseline |
+| K2 | CE + class-weighted KL | baseline mạnh hơn |
+| K3 | CE + region-weighted KD | đóng góp chính |
+| K4 | K3 + boundary-band CE | đóng góp biên |
 | Q0 | ONNX FP32 của model được chọn | parity/deployment baseline |
 | Q1 | PTQ INT8 của cùng model | quantization |
 
-S0, S1a, S1b, S2 và S3 chạy seed `42, 1337, 2026`. Teacher được cố định.
+Các full run đã khóa chạy seed `42, 1337, 2026`. Teacher được cố định.
 QAT/mixed precision chỉ là Q2/Q3 tùy chọn.
 
 ## 8. Training protocol
 
 - Pilot chung cho mọi model: learning rate `{1e-4, 3e-4}`, weight decay cố định
   `1e-4`; chọn một cặp dùng cho toàn bộ ablation.
-- Mỗi S1a, S1b, S2 và S3 được tối đa bốn cấu hình tuning với seed 42. S1a/S1b/S2
-  dùng grid `T in {2,4}` × `lambda_kd in {0.5,1.0}`. S3 dùng bốn tuple
+- Mỗi K1, K2, K3 và K4 được tối đa bốn cấu hình tuning với seed 42. K1/K2/K3
+  dùng grid `T in {2,4}` × `lambda_kd in {0.5,1.0}`. K4 dùng bốn tuple
   `(T, lambda_kd, alpha_band)` là `(2,.5,1)`, `(2,1,2)`, `(4,.5,2)`, `(4,1,4)`.
   Region coefficients, confidence transform và disagreement rule được giữ cố
   định như mục 4, không tuning thêm.
@@ -206,7 +253,7 @@ nghĩa là lớn hơn `max(5 blobs/100 ảnh, 10% so với S0)`.
 
 ## 12. Thống kê và bảng kết quả
 
-- S0–S3: mean ± std ba seed.
+- S0, R1, cấu hình R cuối, K1–K4: mean ± std ba seed khi nhánh tương ứng được chạy.
 - Bootstrap confidence interval theo ảnh hoặc sequence phù hợp; external video
   phải bootstrap theo sequence/clip, không giả định mọi frame độc lập.
 - Bảng accuracy/ablation, external-domain gap, ONNX/PTQ và Pi benchmark.
@@ -218,7 +265,7 @@ nghĩa là lớn hơn `max(5 blobs/100 ảnh, 10% so với S0)`.
 1. Audit/split report.
 2. Boundary loss/metric và unit tests.
 3. S0 và teacher gate.
-4. S1a/S1b/S2/S3 ba seed.
+4. K1/K2/K3/K4 ba seed.
 5. External evaluation và thống kê.
 6. ONNX parity, PTQ.
 7. Raspberry Pi 5 benchmark.

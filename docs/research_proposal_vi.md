@@ -69,7 +69,8 @@ hoàn thành cốt lõi.
 - RGB monocular, ba lớp segmentation.
 - MaSTr1325 để train/validation theo split chống near-duplicate.
 - WaSR-ResNet101 teacher và eWaSR-ResNet18 student.
-- S0–S3, ba random seed.
+- S0/R1/R2 robustness ablation và K1–K4 KD ablation, ba random seed cho các
+  full run đã khóa.
 - Một external held-out set: MODS official evaluator hoặc local set được khóa và
   không dùng để tuning.
 - ONNX FP32, PTQ INT8 và benchmark Raspberry Pi 5.
@@ -133,7 +134,7 @@ checkpoint bằng validation.
 - protocol split vượt kiểm tra near-duplicate;
 - teacher vượt S0 ít nhất `0.005` theo `S_val` và không tăng quá 5
   false-positive blobs/100 ảnh trước khi KD;
-- S2 hoặc S3 cải thiện small-component recall/BF1 so với S0 và standard KD mà
+- K3 hoặc K4 cải thiện small-component recall/BF1 so với S0 và K1 mà
   không tăng quá `max(5 blobs/100 ảnh, 10% so với S0)`;
 - ONNX FP32 đạt max absolute logit error `<= 1e-4` và pixel agreement
   `>= 99.99%`; PTQ được đánh giá lại từ artifact;
@@ -149,7 +150,7 @@ Kết quả âm vẫn hợp lệ nếu protocol chặt và được phân tích 
 | 1 | Audit dữ liệu, group/pHash split, khóa protocol | split report, split files |
 | 2 | Sửa boundary objective/metric, unit test; train S0 | baseline hợp lệ |
 | 3 | Train/kiểm tra teacher; standard và class-weighted KD | teacher gate, S1 |
-| 4 | Region-weighted KD và boundary-band objective | S2, S3 |
+| 4 | Region-weighted KD và boundary-band objective | K3, K4 |
 | 5 | Ba seed, component metrics, error analysis | bảng ablation |
 | 6 | External held-out/MODS; ONNX parity và PTQ | bảng generalization/quantization |
 | 7 | Benchmark Raspberry Pi 5 model-only và end-to-end | latency/RAM/thermal table |
@@ -169,6 +170,7 @@ thành.
 
 ### Gate B — nghiệm thu khoa học sau triển khai
 
-- có bằng chứng split sạch, unit test loss/metric, S0–S3 ba seed, external test,
+- có bằng chứng split sạch, unit test loss/metric, các full run đã khóa ba seed,
+  external test,
   ONNX parity/PTQ và benchmark Pi 5;
 - mọi kết luận chỉ dựa trên artifact và protocol đã khóa.

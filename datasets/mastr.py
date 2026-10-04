@@ -7,13 +7,14 @@ well as masks that share the image stem. Labels are returned as class indices:
 
 from __future__ import annotations
 
+from io import BytesIO
 import random
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageFilter
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.transforms import ColorJitter, InterpolationMode
@@ -23,6 +24,49 @@ from torchvision.transforms import functional as TF
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
 MASK_EXTENSIONS = (".png", ".bmp", ".tif", ".tiff")
 VALID_LABELS = {0, 1, 2, 4}
+AUGMENTATION_PROFILES = {
+    "baseline": {
+        "horizontal_flip_probability": 0.5,
+        "color_jitter": {
+            "brightness": 0.20,
+            "contrast": 0.20,
+            "saturation": 0.15,
+            "hue": 0.03,
+        },
+        "gamma": {"probability": 0.0, "range": [1.0, 1.0]},
+        "gaussian_blur": {"probability": 0.0, "radius": [0.0, 0.0]},
+        "jpeg": {"probability": 0.0, "quality": [100, 100]},
+        "fog": {"probability": 0.0, "alpha": [0.0, 0.0]},
+        "gaussian_noise": {"probability": 0.0, "sigma": [0.0, 0.0]},
+    },
+    "domain": {
+        "horizontal_flip_probability": 0.5,
+        "color_jitter": {
+            "brightness": 0.30,
+            "contrast": 0.30,
+            "saturation": 0.20,
+            "hue": 0.04,
+        },
+        "gamma": {"probability": 0.25, "range": [0.75, 1.35]},
+        "gaussian_blur": {"probability": 0.20, "radius": [0.10, 1.20]},
+        "jpeg": {"probability": 0.20, "quality": [55, 95]},
+        "fog": {"probability": 0.15, "alpha": [0.04, 0.16]},
+        "gaussian_noise": {"probability": 0.20, "sigma": [0.0, 0.025]},
+    },
+}
+
+
+def augmentation_spec(profile: str) -> dict:
+    if profile not in AUGMENTATION_PROFILES:
+        raise ValueError(
+            f"Unknown augmentation profile '{profile}'. Expected {sorted(AUGMENTATION_PROFILES)}"
+        )
+    # The values are JSON-compatible; copying prevents callers from mutating
+    # the pre-registered experiment definition.
+    return {
+        key: value.copy() if isinstance(value, dict) else value
+        for key, value in AUGMENTATION_PROFILES[profile].items()
+    }
 
 
 def decode_mask(mask: Image.Image) -> np.ndarray:
@@ -75,12 +119,22 @@ class JointTransform:
         self,
         size: tuple[int, int] = (384, 512),
         train: bool = False,
-        horizontal_flip_probability: float = 0.5,
+        augmentation_profile: str = "baseline",
     ) -> None:
         self.size = size
         self.train = train
-        self.horizontal_flip_probability = horizontal_flip_probability
-        self.color_jitter = ColorJitter(brightness=0.2, contrast=0.2, saturation=0.15, hue=0.03)
+        self.augmentation_profile = augmentation_profile
+        self.spec = augmentation_spec(augmentation_profile)
+        self.horizontal_flip_probability = self.spec["horizontal_flip_probability"]
+        self.color_jitter = ColorJitter(**self.spec["color_jitter"])
+
+    @staticmethod
+    def _jpeg(image: Image.Image, quality: int) -> Image.Image:
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=quality)
+        buffer.seek(0)
+        with Image.open(buffer) as decoded:
+            return decoded.convert("RGB")
 
     def __call__(
         self, image: Image.Image, mask: Image.Image, imu: Optional[Image.Image] = None
@@ -98,8 +152,32 @@ class JointTransform:
         if self.train:
             image = self.color_jitter(image)
 
+            gamma = self.spec["gamma"]
+            if random.random() < gamma["probability"]:
+                image = TF.adjust_gamma(image, random.uniform(*gamma["range"]))
+
+            blur = self.spec["gaussian_blur"]
+            if random.random() < blur["probability"]:
+                image = image.filter(ImageFilter.GaussianBlur(random.uniform(*blur["radius"])))
+
+            jpeg = self.spec["jpeg"]
+            if random.random() < jpeg["probability"]:
+                image = self._jpeg(image, random.randint(*jpeg["quality"]))
+
+        image_tensor = TF.to_tensor(image)
+        if self.train:
+            fog = self.spec["fog"]
+            if random.random() < fog["probability"]:
+                alpha = random.uniform(*fog["alpha"])
+                image_tensor = image_tensor * (1.0 - alpha) + alpha
+
+            noise = self.spec["gaussian_noise"]
+            if random.random() < noise["probability"]:
+                sigma = random.uniform(*noise["sigma"])
+                image_tensor = (image_tensor + torch.randn_like(image_tensor) * sigma).clamp(0, 1)
+
         image_tensor = TF.normalize(
-            TF.to_tensor(image),
+            image_tensor,
             mean=(0.485, 0.456, 0.406),
             std=(0.229, 0.224, 0.225),
         )
@@ -118,6 +196,7 @@ class MaSTr1325Dataset(Dataset):
         train: bool = False,
         size: tuple[int, int] = (384, 512),
         require_imu: bool = False,
+        augmentation_profile: str = "baseline",
     ) -> None:
         self.root = Path(root)
         self.image_dir = self.root / "images"
@@ -135,7 +214,11 @@ class MaSTr1325Dataset(Dataset):
             raise RuntimeError(
                 f"No images found in {self.image_dir}. Download and extract MaSTr1325 first."
             )
-        self.transform = JointTransform(size=size, train=train)
+        self.transform = JointTransform(
+            size=size,
+            train=train,
+            augmentation_profile=augmentation_profile,
+        )
 
     def __len__(self) -> int:
         return len(self.stems)

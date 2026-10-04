@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "selection_metric": "validation.safety_score",
+  "screening_seed": 42,
+  "full_run_seeds": [42, 1337, 2026],
+  "test_used_for_selection": false,
+  "experiments": {
+    "S0": {
+      "role": "supervised baseline",
+      "augmentation_profile": "baseline",
+      "boundary_weight": 0.0,
+      "sparse_obstacle_weight": 0.0,
+      "kd": "none"
+    },
+    "R1": {
+      "role": "domain augmentation ablation",
+      "augmentation_profile": "domain",
+      "boundary_weight": 0.0,
+      "sparse_obstacle_weight": 0.0,
+      "kd": "none"
+    },
+    "R1-B": {
+      "role": "boundary loss ablation",
+      "augmentation_profile": "domain",
+      "boundary_weight": 1.0,
+      "sparse_obstacle_weight": 0.0,
+      "kd": "none"
+    },
+    "R1-O": {
+      "role": "sparse obstacle loss ablation",
+      "augmentation_profile": "domain",
+      "boundary_weight": 0.0,
+      "sparse_obstacle_weight": 0.25,
+      "kd": "none"
+    },
+    "R2": {
+      "role": "boundary and sparse interaction",
+      "augmentation_profile": "domain",
+      "boundary_weight": 1.0,
+      "sparse_obstacle_weight": 0.25,
+      "kd": "none"
+    },
+    "T0": {"role": "fixed WaSR teacher gate"},
+    "K1": {"role": "standard logit KD"},
+    "K2": {"role": "class-weighted KD"},
+    "K3": {"role": "region-weighted KD"},
+    "K4": {"role": "region-weighted KD plus boundary CE"},
+    "Q0": {"role": "selected ONNX FP32 artifact"},
+    "Q1": {"role": "PTQ INT8 artifact from Q0"}
+  }
+}

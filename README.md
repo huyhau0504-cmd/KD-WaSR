@@ -82,14 +82,16 @@ All research runs below use the locked grouped split. Train the eWaSR student:
 
 ```powershell
 python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
-  --model ewasr_resnet18 --epochs 50 --batch-size 4 --output-dir outputs/ewasr_fp32
+  --experiment-id S0 --model ewasr_resnet18 --epochs 50 --batch-size 4 `
+  --output-dir outputs/ewasr_fp32
 ```
 
 Train the WaSR teacher:
 
 ```powershell
 python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
-  --model wasr_resnet101 --epochs 50 --batch-size 2 --output-dir outputs/wasr_teacher
+  --experiment-id T0 --model wasr_resnet101 --epochs 50 --batch-size 2 `
+  --output-dir outputs/wasr_teacher
 ```
 
 Train standard logit distillation with the approved boundary-band CE
@@ -97,7 +99,8 @@ Train standard logit distillation with the approved boundary-band CE
 
 ```powershell
 python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
-  --model ewasr_resnet18 --teacher-checkpoint outputs/wasr_teacher/best.pt `
+  --experiment-id K1 --model ewasr_resnet18 `
+  --teacher-checkpoint outputs/wasr_teacher/best.pt `
   --kd-weight 1.0 --boundary-weight 2.0 `
   --epochs 50 --batch-size 4 --output-dir outputs/ewasr_kd
 ```
@@ -111,6 +114,22 @@ python evaluate.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
 python predict.py --input path/to/image_or_folder --checkpoint outputs/ewasr_fp32/best.pt `
   --output-dir outputs/predictions
 ```
+
+For square or otherwise non-4:3 inputs, do not silently stretch the image.
+Run the locked geometry diagnostic first:
+
+```powershell
+python predict.py --input path/to/image_or_folder --checkpoint outputs/ewasr_fp32/best.pt `
+  --geometry letterbox --output-dir outputs/predictions_letterbox
+
+python predict.py --input path/to/image_or_folder --checkpoint outputs/ewasr_fp32/best.pt `
+  --geometry center_crop --output-dir outputs/predictions_crop
+```
+
+`letterbox` pads the normalized tensor with zeros (ImageNet-mean RGB before
+normalization) and removes the padding from logits before upsampling.  The
+`center_crop` mode is diagnostic only: source pixels outside the crop are saved
+as label `255` (unknown), never as water/sky/obstacle.
 
 ### A/B test with the authors' official pretrained eWaSR
 
@@ -126,7 +145,67 @@ The script downloads release `0.1.0`, verifies its SHA-256 checksum, reproduces
 the official ImageNet preprocessing and upsamples logits before argmax. Compare
 the generated `_overlay.jpg` with the local model on exactly the same images.
 
-## 6. Export, quantize, and benchmark
+Create the fixed-order qualitative comparison after both prediction folders
+exist:
+
+```powershell
+python compare_geometry.py --input path/to/image_or_folder `
+  --checkpoint outputs/ewasr_fp32/best.pt `
+  --official-dir outputs/official_ewasr_predictions `
+  --output-dir outputs/geometry_comparison --device cuda
+```
+
+This produces `Original | stretch | letterbox | center-crop | official eWaSR`
+contact sheets for every input image. Without target-domain masks these sheets
+are failure analysis only, not quantitative evidence that one model is better.
+
+## 6. Pre-training gates and controlled R1/R2 screening
+
+Generate the grouped-split balance audit and inspect the locked domain
+augmentation before starting a new training run:
+
+```powershell
+python audit_split_balance.py --data-root data/MaSTr1325 `
+  --split-dir data/grouped_splits
+
+python preview_augmentations.py --data-root data/MaSTr1325 `
+  --split-file data/grouped_splits/train.txt `
+  --profile domain --output outputs/augmentation_domain_montage.jpg
+```
+
+The 15-epoch commands below are exploratory screening runs. They may only use
+train/validation; do not evaluate test while choosing the winner.
+
+```powershell
+# R1: domain augmentation only
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
+  --experiment-id R1 --augmentation-profile domain --epochs 15 `
+  --early-stopping-patience 10 `
+  --output-dir outputs/R1_screen
+
+# R1-B: isolate boundary-band CE
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
+  --experiment-id R1-B --augmentation-profile domain --boundary-weight 1.0 --epochs 15 `
+  --output-dir outputs/R1_B_screen
+
+# R1-O: isolate sparse-obstacle weighting
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
+  --experiment-id R1-O --augmentation-profile domain `
+  --sparse-obstacle-weight 0.25 --epochs 15 `
+  --output-dir outputs/R1_O_screen
+
+# R2: interaction of both objectives
+python train_student.py --data-root data/MaSTr1325 --split-dir data/grouped_splits `
+  --experiment-id R2 --augmentation-profile domain --boundary-weight 1.0 `
+  --sparse-obstacle-weight 0.25 --epochs 15 --output-dir outputs/R2_screen
+```
+
+Only after selecting a configuration by validation `safety_score`, rerun S0,
+R1 and the final loss configuration for up to 50 epochs with seeds
+`42, 1337, 2026`. `config.json` records the exact augmentation ranges, metric
+definitions, checkpoint rule and early-stopping rule.
+
+## 7. Export, quantize, and benchmark
 
 ```powershell
 python export_onnx.py --checkpoint outputs/ewasr_fp32/best.pt `

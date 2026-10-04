@@ -1,0 +1,213 @@
+{
+  "source_report": "data\\grouped_splits\\split_report.json",
+  "source_protocol": "pre-registered grouped near-duplicate split v1",
+  "verified_current_state": {
+    "split_sha256": {
+      "train": "3786579a0da60ce5fc426b98eeed5ba52625870440f1b869277019f41912df0e",
+      "val": "9ee3c4cf8a49d20b40aea4366344867fd39513464f949e975d4a69d34d2c07fb",
+      "test": "c56e2199946e5c9f7f7c68d2a1e1c48cf1eaab86bea95742e3d45a0c20f31c54"
+    },
+    "dataset_manifest_sha256": "12e49d70156f623d4f6cff16973c9892c71beaaee42b63e7cd0322ae5f3e09f5",
+    "dataset_images": 1325,
+    "split_union_images": 1325,
+    "splits_disjoint": true,
+    "splits_complete": true
+  },
+  "leakage_audit": {
+    "group_split_violations": 0,
+    "cross_split_phash_violations": 0,
+    "cross_split_embedding_violations": 0
+  },
+  "splits": {
+    "train": {
+      "images": 928,
+      "groups": 701,
+      "group_size": {
+        "minimum": 1,
+        "maximum": 100,
+        "mean": 1.3238231098430813
+      },
+      "class_pixels": {
+        "obstacle": 14976962,
+        "water": 72263838,
+        "sky": 91520575
+      },
+      "class_ratio": {
+        "obstacle": 0.08378186842655468,
+        "water": 0.4042474947398452,
+        "sky": 0.5119706368336001
+      },
+      "component_count": {
+        "tiny": 4829,
+        "very_small": 342,
+        "small": 355,
+        "medium_plus": 1032
+      },
+      "image_sizes": {
+        "512x384": 928
+      }
+    },
+    "val": {
+      "images": 199,
+      "groups": 157,
+      "group_size": {
+        "minimum": 1,
+        "maximum": 9,
+        "mean": 1.267515923566879
+      },
+      "class_pixels": {
+        "obstacle": 3257463,
+        "water": 15319058,
+        "sky": 19706991
+      },
+      "class_ratio": {
+        "obstacle": 0.08508788326421045,
+        "water": 0.40014766670309665,
+        "sky": 0.5147644500326929
+      },
+      "component_count": {
+        "tiny": 1141,
+        "very_small": 74,
+        "small": 76,
+        "medium_plus": 227
+      },
+      "image_sizes": {
+        "512x384": 199
+      }
+    },
+    "test": {
+      "images": 198,
+      "groups": 156,
+      "group_size": {
+        "minimum": 1,
+        "maximum": 7,
+        "mean": 1.2692307692307692
+      },
+      "class_pixels": {
+        "obstacle": 2935694,
+        "water": 15456325,
+        "sky": 19759655
+      },
+      "class_ratio": {
+        "obstacle": 0.0769479735017656,
+        "water": 0.40512835688415666,
+        "sky": 0.5179236696140778
+      },
+      "component_count": {
+        "tiny": 823,
+        "very_small": 70,
+        "small": 69,
+        "medium_plus": 212
+      },
+      "image_sizes": {
+        "512x384": 198
+      }
+    }
+  },
+  "largest_group": {
+    "size": 100,
+    "split": "train",
+    "members": [
+      "0413",
+      "0414",
+      "0415",
+      "0416",
+      "0417",
+      "0418",
+      "old_0153",
+      "old_0154",
+      "old_0155",
+      "old_0156",
+      "old_0157",
+      "old_0158",
+      "old_0159",
+      "old_0160",
+      "old_0161",
+      "old_0162",
+      "old_0163",
+      "old_0164",
+      "old_0165",
+      "old_0166",
+      "old_0167",
+      "old_0168",
+      "old_0169",
+      "old_0170",
+      "old_0171",
+      "old_0172",
+      "old_0173",
+      "old_0174",
+      "old_0175",
+      "old_0176",
+      "old_0177",
+      "old_0178",
+      "old_0179",
+      "old_0180",
+      "old_0181",
+      "old_0182",
+      "old_0183",
+      "old_0184",
+      "old_0185",
+      "old_0186",
+      "old_0187",
+      "old_0188",
+      "old_0189",
+      "old_0190",
+      "old_0191",
+      "old_0192",
+      "old_0193",
+      "old_0194",
+      "old_0195",
+      "old_0196",
+      "old_0197",
+      "old_0198",
+      "old_0199",
+      "old_0200",
+      "old_0201",
+      "old_0202",
+      "old_0203",
+      "old_0204",
+      "old_0205",
+      "old_0206",
+      "old_0207",
+      "old_0208",
+      "old_0209",
+      "old_0210",
+      "old_0211",
+      "old_0212",
+      "old_0213",
+      "old_0214",
+      "old_0215",
+      "old_0216",
+      "old_0217",
+      "old_0218",
+      "old_0219",
+      "old_0220",
+      "old_0221",
+      "old_0222",
+      "old_0223",
+      "old_0224",
+      "old_0225",
+      "old_0226",
+      "old_0227",
+      "old_0228",
+      "old_0229",
+      "old_0230",
+      "old_0231",
+      "old_0232",
+      "old_0233",
+      "old_0234",
+      "old_0235",
+      "old_0236",
+      "old_0237",
+      "old_0238",
+      "old_0239",
+      "old_0240",
+      "old_0241",
+      "old_0242",
+      "old_0243",
+      "old_0244",
+      "old_0245",
+      "old_0246"
+    ]
+  }
+}
